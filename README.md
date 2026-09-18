@@ -5,7 +5,7 @@ pipeline, and produces detailed usage reports. Supports the Anthropic SDK and AW
 
 ---
 
-## How It Works (No ML Background Needed)
+## How It Works
 
 Every call to an LLM API is billed by tokens (roughly, word pieces) in and out. Most of that
 cost is waste: verbose instructions, repeated conversation history resent on every turn, and

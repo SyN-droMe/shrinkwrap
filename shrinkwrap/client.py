@@ -1,10 +1,10 @@
 """
-TokenWrapperClient — drop-in replacement for anthropic.Anthropic().
+ShrinkWrapClient — drop-in replacement for anthropic.Anthropic().
 
 Usage:
-    from token_wrapper import TokenWrapperClient
+    from shrinkwrap import ShrinkWrapClient
 
-    client = TokenWrapperClient(api_key="sk-ant-...")
+    client = ShrinkWrapClient(api_key="sk-ant-...")
     response = client.messages.create(
         model="claude-sonnet-4.6",
         max_tokens=1024,
@@ -30,7 +30,7 @@ from .pipeline import PipelineConfig, ReductionPipeline
 from .reporter import UsageReporter
 from .utils import estimate_cost, hash_content, messages_token_estimate, estimate_tokens
 
-log = logging.getLogger("token_wrapper.client")
+log = logging.getLogger("shrinkwrap.client")
 
 
 class _MessagesProxy:
@@ -39,7 +39,7 @@ class _MessagesProxy:
     Mirrors the interface of anthropic.resources.Messages.
     """
 
-    def __init__(self, wrapper: "TokenWrapperClient") -> None:
+    def __init__(self, wrapper: "ShrinkWrapClient") -> None:
         self._wrapper = wrapper
         # Local response cache: {prompt_hash: response}
         # Avoids redundant API calls for identical prompts (same model+system+messages).
@@ -202,7 +202,7 @@ class _MessagesProxy:
                 pass  # Non-fatal; usage just won't be recorded for this stream
 
 
-class TokenWrapperClient:
+class ShrinkWrapClient:
     """
     Drop-in replacement for anthropic.Anthropic(), with optional AWS Bedrock backend.
 
@@ -284,7 +284,7 @@ class TokenWrapperClient:
 
     # ── Context manager support ───────────────────────────────────────────
 
-    def __enter__(self) -> "TokenWrapperClient":
+    def __enter__(self) -> "ShrinkWrapClient":
         return self
 
     def __exit__(self, *_: Any) -> None:

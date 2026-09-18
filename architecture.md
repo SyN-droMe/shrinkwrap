@@ -1,49 +1,73 @@
-# Architecture: Token Wrapper
+# Architecture: ShrinkWrap
 
 ## Overview
 
-The token wrapper is a lightweight Python library that sits between application code
+ShrinkWrap is a lightweight Python library that sits between application code
 and an LLM API (Anthropic SDK or AWS Bedrock). It intercepts every `messages.create()`
 call, applies a configurable reduction pipeline, logs exact token usage from the API
 response, and exposes summary reports.
 
 ```mermaid
 flowchart LR
-    APP[Application Code] -->|messages.create| PROXY[_MessagesProxy]
-    PROXY --> CACHE_CHECK{Response\nCached?}
-    CACHE_CHECK -->|hit| APP
+    APP[Application Code] -->|"messages.create()\n~1250 tok raw"| PROXY[_MessagesProxy]
+    PROXY --> CACHE_CHECK{Response\ncached?}
+    CACHE_CHECK -->|"hit\n0 tok, $0"| APP
     CACHE_CHECK -->|miss| PIPE[ReductionPipeline]
-    PIPE -->|optimized request| API[LLM API]
-    API -->|response + usage| LOG[UsageLogger]
+    PIPE -->|"optimized request\n~250 billed tok"| API[LLM API]
+    API -->|"response + usage\n~600 tok out"| LOG[UsageLogger]
     LOG --> RPT[UsageReporter]
     LOG -->|response| APP
 ```
+
+*Numbers above trace one representative call from the benchmark: a medium-difficulty
+code-review prompt on a warm cache. See the worked example below for the full breakdown.*
 
 ### Reduction Pipeline Detail
 
 ```mermaid
 flowchart TD
-    IN[Raw Messages + System Prompt] --> COMP{Code detected?}
-    COMP -->|yes| SKIP[Skip Compression]
-    COMP -->|no| COMPRESS[Compress Prompt]
+    IN["Raw Messages + System Prompt\nsystem: ~1100 tok, user: ~150 tok"] --> COMP{Code detected?}
+    COMP -->|yes, skip| SKIP["Skip Compression\n150 tok unchanged"]
+    COMP -->|"no\n(this example)"| COMPRESS["Compress Prompt\n150 -> ~140 tok"]
     SKIP --> TRIM{Context > 6000 tok?}
     COMPRESS --> TRIM
     TRIM -->|yes| SUMMARIZE[Summarize Old Turns]
-    TRIM -->|no| KEEP[Keep As-Is]
+    TRIM -->|"no\n(single-turn)"| KEEP["Keep As-Is\n~140 tok"]
     SUMMARIZE --> CACHE{System prompt >= 1024 tok?}
     KEEP --> CACHE
-    CACHE -->|yes| INJECT[Inject Cache Control]
+    CACHE -->|"yes\n1100 tok qualifies"| INJECT["Inject Cache Control\nread at 0.1x = ~110 billed"]
     CACHE -->|no| NOCACHE[No Cache Markers]
-    INJECT --> ADAPTIVE[Adaptive max_tokens]
+    INJECT --> ADAPTIVE["Adaptive max_tokens\ncode_review/medium -> cap 600"]
     NOCACHE --> ADAPTIVE
-    ADAPTIVE --> OUT[Optimized Request]
+    ADAPTIVE --> OUT["Optimized Request\n~250 billed input tok, capped at 600 out"]
 ```
+
+### Worked Example: One Call Traced
+
+Concrete numbers for one representative benchmark call (a medium-difficulty code-review
+prompt, cache already warm from an earlier call in the run):
+
+| Stage | Input state | What happens | Output state |
+|---|---|---|---|
+| Raw request | system 1100 tok, user 150 tok | (nothing yet) | 1250 tok total, uncached |
+| Code detection | user 150 tok | no code detected, compression runs | proceeds to compression |
+| Compression | user 150 tok | verbose-phrase substitution, whitespace cleanup | user 140 tok |
+| Context trimming | single-turn, 0 prior history | below 6000 tok threshold, skipped | unchanged, 140 tok |
+| Cache check | system 1100 tok | >=1024 tok, already cached from call 1 | system billed at 0.1x, ~110 tok |
+| Adaptive cap | task=code_review, difficulty=medium | `max_tokens` set to 600 instead of flat 1024 | model capped at 600 tok out |
+| **Billed total** | | | **~250 tok in, up to 600 tok out** (vs. ~1250 tok in, up to 1024 tok out uncapped and uncached) |
+
+That single call goes from roughly 1250 billed input tokens (uncached, uncompressed) down to
+about 250: an 80% cut on the input side alone, before the output cap is even counted. Multiply
+the cache saving across the 9 of 10 benchmark calls that hit a warm cache, and the output cap
+across the 5 of 10 calls that were previously hitting the 1024-token ceiling, and the two
+effects together account for most of the 26.5% total-token reduction in the results table above.
 
 ---
 
 ## Design Principles
 
-1. **Drop-in compatibility** — `TokenWrapperClient` exposes `client.messages.create()`
+1. **Drop-in compatibility**: `ShrinkWrapClient` exposes `client.messages.create()`
    with the same signature as `anthropic.Anthropic().messages.create()`. Existing code
    requires only a one-line change to adopt the wrapper.
 
@@ -64,7 +88,7 @@ flowchart TD
 
 ### 1. Prompt Compression
 
-**File:** `token_wrapper/utils.py` — `compress_text()`, `compress_messages()`
+**File:** `shrinkwrap/utils.py`: `compress_text()`, `compress_messages()`
 
 **What it does:**
 - Normalizes redundant whitespace (multiple blank lines → single blank line, trailing spaces)
@@ -92,7 +116,7 @@ automatically on code-containing prompts to avoid counterproductive token inflat
 
 ### 2. Context Trimming with Summarization
 
-**File:** `token_wrapper/pipeline.py` — `_trim_context()`, `_summarize()`
+**File:** `shrinkwrap/pipeline.py`: `_trim_context()`, `_summarize()`
 
 **What it does:**
 - Monitors total estimated input tokens (messages + system prompt) before each call
@@ -122,8 +146,8 @@ history pay the summarization cost only once.
 ### 3. Prompt Caching (Anthropic + Bedrock)
 
 **Files:**
-- `token_wrapper/pipeline.py` — `_inject_cache_control()` (Anthropic SDK)
-- `token_wrapper/bedrock_client.py` — `_extract_system(enable_cache=True)` (Bedrock)
+- `shrinkwrap/pipeline.py`: `_inject_cache_control()` (Anthropic SDK)
+- `shrinkwrap/bedrock_client.py`: `_extract_system(enable_cache=True)` (Bedrock)
 
 **What it does:**
 
@@ -195,7 +219,7 @@ not *what* to omit. Hard/complex tasks still get generous token budgets (800-900
 
 ### 5. Local Response Cache
 
-**File:** `token_wrapper/client.py` — `_MessagesProxy._response_cache`
+**File:** `shrinkwrap/client.py`: `_MessagesProxy._response_cache`
 
 **What it does:**
 - Hashes each processed request (model + system + messages + max_tokens) using SHA-256.
@@ -214,9 +238,9 @@ requests.
 ## File Map
 
 ```
-token_wrapper/
+shrinkwrap/
 ├── __init__.py     Public API surface
-├── client.py       TokenWrapperClient, _MessagesProxy (interceptor)
+├── client.py       ShrinkWrapClient, _MessagesProxy (interceptor)
 ├── pipeline.py     ReductionPipeline, PipelineConfig, strategy implementations
 ├── logger.py       CallRecord, UsageLogger (accumulates per-call metrics)
 ├── reporter.py     UsageReporter (console table + JSON serialization)

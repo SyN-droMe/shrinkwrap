@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run.sh — Entry point for the token_wrapper benchmark submission
+# run.sh — Entry point for the shrinkwrap benchmark submission
 #
 # Usage:
 #   export ANTHROPIC_API_KEY=sk-ant-...

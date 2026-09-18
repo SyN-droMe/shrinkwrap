@@ -23,7 +23,7 @@ from .utils import (
     messages_token_estimate,
 )
 
-log = logging.getLogger("token_wrapper.pipeline")
+log = logging.getLogger("shrinkwrap.pipeline")
 
 
 # ---------------------------------------------------------------------------

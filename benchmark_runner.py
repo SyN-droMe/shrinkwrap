@@ -1,8 +1,8 @@
 """
-Benchmark runner for the token_wrapper submission.
+Benchmark runner for the shrinkwrap submission.
 
 Reads a benchmark JSON file (same format as benchmark_sample.json /
-benchmark_hidden.json) and runs each prompt through the TokenWrapperClient.
+benchmark_hidden.json) and runs each prompt through the ShrinkWrapClient.
 
 Usage:
     # Run wrapped benchmark only
@@ -36,9 +36,9 @@ import anthropic
 # Allow running from submission/ directory
 sys.path.insert(0, str(Path(__file__).parent))
 
-from token_wrapper import TokenWrapperClient
-from token_wrapper.pipeline import PipelineConfig
-from token_wrapper.utils import estimate_cost
+from shrinkwrap import ShrinkWrapClient
+from shrinkwrap.pipeline import PipelineConfig
+from shrinkwrap.utils import estimate_cost
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +220,7 @@ def run_wrapped(
     bedrock: bool = False,
     bedrock_endpoint: str = "https://bedrock-runtime.us-east-1.amazonaws.com",
 ) -> dict:
-    """Run all benchmark prompts through the TokenWrapperClient."""
+    """Run all benchmark prompts through the ShrinkWrapClient."""
 
     config = PipelineConfig(
         enable_compression=True,
@@ -233,7 +233,7 @@ def run_wrapped(
         cache_min_tokens=1024,
     )
 
-    client = TokenWrapperClient(
+    client = ShrinkWrapClient(
         api_key=api_key,
         config=config,
         verbose=verbose,
@@ -512,7 +512,7 @@ def print_comparison(wrapped: dict, baseline: dict) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Token wrapper benchmark runner",
+        description="ShrinkWrap benchmark runner",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(

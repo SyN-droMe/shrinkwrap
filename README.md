@@ -1,7 +1,42 @@
-# Token Wrapper — LLM Token Reduction Layer
+# ShrinkWrap: LLM Token Reduction Layer
 
 A drop-in wrapper that **intercepts every LLM call**, applies a multi-strategy token reduction
 pipeline, and produces detailed usage reports. Supports the Anthropic SDK and AWS Bedrock.
+
+---
+
+## How It Works (No ML Background Needed)
+
+Every call to an LLM API is billed by tokens (roughly, word pieces) in and out. Most of that
+cost is waste: verbose instructions, repeated conversation history resent on every turn, and
+models rambling past the point where they've already answered the question.
+
+ShrinkWrap sits between your code and the LLM API as a drop-in wrapper. You call
+`client.messages.create(...)` exactly like you normally would; behind the scenes, ShrinkWrap:
+
+1. Trims obvious waste from what you're sending (verbose phrasing, old conversation turns that
+   get summarized instead of resent in full) without changing what you're actually asking.
+2. Marks reusable parts of the prompt so the API caches them instead of re-billing you for the
+   same text on every call.
+3. Caps how much room the model has to ramble in its reply, scaled to how hard the task
+   actually is.
+4. Logs exactly how many tokens and dollars each call used, so the savings are measurable, not
+   assumed.
+
+None of this changes what the model is asked or what it knows. It only removes waste in how the
+request is packaged and how much space the response is given to sprawl.
+
+**Results on a 10-prompt benchmark** (mixed code generation, debugging, explanation, and code
+review tasks) against Claude Sonnet 4.6 via AWS Bedrock:
+
+| Metric | Baseline (no wrapper) | Wrapped (ShrinkWrap) | Reduction |
+|---|---|---|---|
+| Input tokens | 1,221 | 1,051 | 13.9% lower |
+| Output tokens | 8,807 | 6,314 | 28.3% lower |
+| Total tokens | 10,028 | 7,365 | **26.5% lower** |
+| Total cost (USD) | $0.1358 | $0.0979 | **27.9% lower** |
+
+See `architecture.md` for the full strategy-by-strategy breakdown and design rationale.
 
 ---
 
@@ -61,7 +96,7 @@ This installs `anthropic` (Anthropic SDK) and `boto3` (Bedrock support).
 #### Linux / macOS
 
 ```bash
-# Basic run — wrapped mode, outputs to results.json
+# Basic run: wrapped mode, outputs to results.json
 bash run.sh
 
 # With baseline comparison
@@ -117,7 +152,7 @@ python benchmark_runner.py \
 
 ### 4. Use Your Own Benchmark
 
-You can test with your own prompts — just create a JSON file matching this format:
+You can test with your own prompts: just create a JSON file matching this format:
 
 ```json
 [
@@ -143,12 +178,12 @@ python benchmark_runner.py --benchmark my_benchmark.json --output results.json -
 
 ### 5. Read the Output
 
-**Console output** — two tables are printed after the run:
+**Console output**: two tables are printed after the run.
 
 1. A summary report with total tokens, cost, and most expensive calls
 2. A per-call table with input/output tokens, savings, and strategies applied
 
-**`results.json`** — machine-readable output containing:
+**`results.json`**: machine-readable output containing:
 - Every prompt's response text
 - Per-call token counts (input, output, cache reads/writes)
 - Summary report with % token reduction and total cost
@@ -158,8 +193,8 @@ python benchmark_runner.py --benchmark my_benchmark.json --output results.json -
 ## Using the Library in Your Own Code
 
 ```python
-from token_wrapper import TokenWrapperClient
-from token_wrapper.pipeline import PipelineConfig
+from shrinkwrap import ShrinkWrapClient
+from shrinkwrap.pipeline import PipelineConfig
 
 config = PipelineConfig(
     enable_compression=True,
@@ -167,7 +202,7 @@ config = PipelineConfig(
     enable_caching=True,
 )
 
-client = TokenWrapperClient(api_key="sk-ant-...", config=config)
+client = ShrinkWrapClient(api_key="sk-ant-...", config=config)
 
 response = client.messages.create(
     model="claude-sonnet-4.6",
@@ -184,7 +219,7 @@ client.print_report()
 ### Context manager usage (auto-prints report on exit):
 
 ```python
-with TokenWrapperClient(api_key="...") as client:
+with ShrinkWrapClient(api_key="...") as client:
     client.messages.create(...)
 ```
 
@@ -193,9 +228,9 @@ with TokenWrapperClient(api_key="...") as client:
 ## Project Structure
 
 ```
-token-wrapper/
-├── token_wrapper/
-│   ├── __init__.py         # Public API: TokenWrapperClient, UsageReporter, UsageLogger
+shrinkwrap/
+├── shrinkwrap/
+│   ├── __init__.py         # Public API: ShrinkWrapClient, UsageReporter, UsageLogger
 │   ├── client.py           # Drop-in wrapper (Anthropic SDK or Bedrock)
 │   ├── bedrock_client.py   # AWS Bedrock adapter
 │   ├── pipeline.py         # Reduction pipeline (compression, trimming, caching)
@@ -226,11 +261,11 @@ token-wrapper/
 ## Notes on Correctness
 
 The wrapper does **not** truncate or rewrite prompt meaning. Reduction strategies are:
-- **Prompt caching** — zero semantic change; uses Anthropic's native feature
-- **Text compression** — normalizes whitespace, replaces verbose constructs with concise
-  equivalents (e.g. "in order to" → "to"). Prompts containing code (fenced or unfenced)
+- **Prompt caching**: zero semantic change; uses Anthropic's native feature
+- **Text compression**: normalizes whitespace, replaces verbose constructs with concise
+  equivalents (e.g. "in order to" becomes "to"). Prompts containing code (fenced or unfenced)
   are automatically skipped to avoid counterproductive token inflation
-- **Context trimming** — only summarizes long multi-turn history (>6000 tokens) using
-  the configured model; all relevant context is preserved in the summary
-- **Output reduction** — concise system prompt and adaptive `max_tokens` per task/difficulty
+- **Context trimming**: only summarizes long multi-turn history (>6000 tokens) using the
+  configured model; all relevant context is preserved in the summary
+- **Output reduction**: concise system prompt and adaptive `max_tokens` per task/difficulty
   reduce output verbosity without sacrificing answer quality

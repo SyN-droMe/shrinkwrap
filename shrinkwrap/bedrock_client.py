@@ -4,7 +4,7 @@ interface as anthropic.Anthropic().messages.create(), so the rest of the
 wrapper (pipeline, logger, reporter) works unchanged.
 
 Usage:
-    from token_wrapper.bedrock_client import BedrockAdapter
+    from shrinkwrap.bedrock_client import BedrockAdapter
 
     adapter = BedrockAdapter(api_key="<your-key>", model_id="claude-sonnet-4")
     response = adapter.messages.create(

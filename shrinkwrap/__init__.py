@@ -1,10 +1,10 @@
 """
-token_wrapper — A drop-in token reduction wrapper for the Anthropic Claude API.
+shrinkwrap — A drop-in token reduction wrapper for the Anthropic Claude API.
 
 Usage:
-    from token_wrapper import TokenWrapperClient
+    from shrinkwrap import ShrinkWrapClient
 
-    client = TokenWrapperClient(api_key="sk-ant-...")
+    client = ShrinkWrapClient(api_key="sk-ant-...")
     response = client.messages.create(
         model="claude-sonnet-4.6",
         max_tokens=1024,
@@ -13,9 +13,9 @@ Usage:
     client.print_report()
 """
 
-from .client import TokenWrapperClient
+from .client import ShrinkWrapClient
 from .reporter import UsageReporter
 from .logger import UsageLogger
 
-__all__ = ["TokenWrapperClient", "UsageReporter", "UsageLogger"]
+__all__ = ["ShrinkWrapClient", "UsageReporter", "UsageLogger"]
 __version__ = "1.0.0"
